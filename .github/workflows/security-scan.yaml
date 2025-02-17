@@ -1,12 +1,16 @@
 name: Cloud Security Assessment Pipeline
 
 on:
-  pull_request:
-    branches: [main]
   push:
     branches: [main]
-  schedule:
-    - cron: '0 0 * * *'  # Daily compliance scan at midnight
+  pull_request:
+    branches: [main]
+  workflow_dispatch:  # Allows manual triggers for add-ons
+    inputs:
+      run_compliance:
+        description: 'Run compliance scan (extra charge)'
+        required: false
+        default: 'false'
 
 jobs:
   trivy-scan:
@@ -15,18 +19,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Trivy Container Scan
+      - name: Container Scan
         uses: aquasec/trivy-action@master
         with:
-          image-ref: '${{ vars.CLIENT_IMAGE }}'  # Set in repo variables (e.g., "nginx:latest")
+          image-ref: '${{ vars.CLIENT_IMAGE }}'
           format: 'json'
           output: 'trivy-container-results.json'
           severity: 'CRITICAL,HIGH'
-          ignore-unfixed: true
 
-      - name: Trivy IaC Scan
+      - name: IaC Scan
         run: |
-          trivy config --severity CRITICAL,HIGH --format json --output trivy-iac-results.json ./iac/
+          trivy config --severity CRITICAL,HIGH --format json \
+          --output trivy-iac-results.json ./iac/
 
   checkov-scan:
     runs-on: ubuntu-latest
@@ -35,28 +39,37 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Checkov IaC Compliance
+      - name: IaC Policy Check
         uses: bridgecrewio/checkov-action@v12
         with:
           directory: ./iac/
           output_format: json
           output_file_path: checkov-results.json
-          framework: 'terraform,cloudformation,kubernetes'  # Auto-detect IaC type
 
-  scout-suite:
-    runs-on: ubuntu-latest
-    needs: [trivy-scan]
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}  # Manual/daily runs
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Scout Suite Compliance Audit
-        run: |
-          docker run -v $(pwd):/app/scoutsuite-results \
-            -e AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY }} \
-            -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_KEY }} \
-            scoutsuite/scoutsuite scout.py aws  # Replace "aws" with "azure" or "gcp"
+  # ==============================================
+  # COMPLIANCE ADD-ON (Uncomment for paid tier)
+  # ----------------------------------------------
+  # scout-suite:
+  #   runs-on: ubuntu-latest
+  #   needs: [trivy-scan]
+  #   if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_compliance == 'true' }}
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+  # 
+  #     - name: AWS Compliance Audit
+  #       run: |
+  #         docker run -v $(pwd):/app/scoutsuite-results \
+  #           -e AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY }} \
+  #           -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_KEY }} \
+  #           scoutsuite/scoutsuite scout.py aws
+  # 
+  #     - name: Archive Results
+  #       uses: actions/upload-artifact@v3
+  #       with:
+  #         name: scoutsuite-report
+  #         path: scoutsuite-results/
+  # ==============================================
 
   ai-remediation:
     runs-on: ubuntu-latest
@@ -73,26 +86,13 @@ jobs:
 
   report:
     runs-on: ubuntu-latest
-    needs: [ai-remediation, scout-suite]
+    needs: [ai-remediation]  # Add 'scout-suite' here if enabling compliance
     steps:
-      - name: Generate Consolidated Report
-        run: |
-          python3 scripts/generate-report.py \
-            --trivy trivy-*-results.json \
-            --checkov checkov-results.json \
-            --scout scoutsuite-results/scoutsuite-results*.js
-        env:
-          CLIENT_NAME: '${{ vars.CLIENT_NAME }}'  # Set in repo variables (e.g., "Client ABC")
+      - name: Generate Report
+        run: python3 scripts/generate-report.py
 
       - name: Upload Report
         uses: actions/upload-artifact@v3
         with:
           name: security-report
           path: report.html
-
-      - name: Notify Client
-        if: ${{ failure() || success() }}  # Always notify
-        uses: rtCamp/action-slack-notify@v2
-        env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-          SLACK_MESSAGE: "Security scan completed for ${{ vars.CLIENT_NAME }}. Report: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
