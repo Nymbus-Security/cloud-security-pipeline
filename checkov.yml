@@ -1,0 +1,5 @@
+framework:
+  - hipaa
+  - pci
+  - cis_aws
+soft-fail: false  # Block builds on critical issues

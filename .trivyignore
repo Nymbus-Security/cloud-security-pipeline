@@ -1,0 +1,2 @@
+# Example: Ignore CVE-2023-1234 in Alpine packages
+CVE-2023-1234
