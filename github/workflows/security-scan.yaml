@@ -25,6 +25,10 @@ jobs:
         run: |
           trivy config --severity CRITICAL,HIGH --format json --output trivy-iac.json ./iac/
 
+      - name: Scan Kubernetes Manifests
+        run: |
+          trivy config --severity CRITICAL,HIGH --format json --output trivy-k8s.json ./iac/k8s-deployment.yaml
+ 
   checkov-scan:
     runs-on: ubuntu-latest
     steps:

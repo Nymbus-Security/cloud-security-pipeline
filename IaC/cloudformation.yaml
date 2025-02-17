@@ -1,0 +1,17 @@
+# cloudformation.yaml
+Resources:
+  InsecureBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: my-insecure-bucket
+      AccessControl: PublicRead  # Vulnerable to public access
+
+  InsecureSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Allow all traffic"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0  # Open to the world
