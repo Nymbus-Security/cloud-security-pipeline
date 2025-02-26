@@ -1,8 +1,10 @@
 import json
 import os
+import argparse
 import openai
 import logging
 import time
+import glob
 
 # Configure logging
 logging.basicConfig(filename='pipeline.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -36,9 +38,21 @@ def generate_fix(vulnerability):
     return "Failed to generate fix after retries."
 
 def main():
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Generate AI remediation for security findings')
+    parser.add_argument('--trivy', required=True, help='Path to Trivy results file(s)')
+    parser.add_argument('--checkov', required=True, help='Path to Checkov results file')
+    args = parser.parse_args()
+
     # Load scan results
-    trivy_results = load_json('trivy-results.json')
-    checkov_results = load_json('checkov-results.json')
+    trivy_files = glob.glob(args.trivy)
+    trivy_results = []
+    for trivy_file in trivy_files:
+        trivy_data = load_json(trivy_file)
+        if trivy_data:
+            trivy_results.append(trivy_data)
+    
+    checkov_results = load_json(args.checkov)
 
     # Set OpenAI API key
     openai.api_key = os.getenv('OPENAI_API_KEY')
@@ -47,17 +61,21 @@ def main():
         return
 
     # Process Trivy results
-    for result in trivy_results.get('Results', []):
-        for vuln in result.get('Vulnerabilities', []):
-            vuln['AI_Fix'] = generate_fix(vuln['Description'])
+    for result_set in trivy_results:
+        for result in result_set.get('Results', []):
+            for vuln in result.get('Vulnerabilities', []):
+                vuln['AI_Fix'] = generate_fix(vuln['Description'])
 
     # Process Checkov results
     for check in checkov_results.get('results', {}).get('failed_checks', []):
         check['AI_Fix'] = generate_fix(check['check_name'])
 
     # Save enhanced results
-    with open('combined-results.json', 'w') as f:
-        json.dump({'trivy': trivy_results, 'checkov': checkov_results}, f, indent=2)
+    with open('ai-remediation-results.json', 'w') as f:
+        json.dump({
+            'trivy': trivy_results, 
+            'checkov': checkov_results
+        }, f, indent=2)
     logging.info("AI remediation completed successfully.")
 
 if __name__ == "__main__":
