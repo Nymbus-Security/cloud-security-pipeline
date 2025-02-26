@@ -1,96 +1,110 @@
 name: Cloud Security Assessment Pipeline
-
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-  workflow_dispatch:  # Allows manual triggers for add-ons
+  workflow_dispatch:
     inputs:
       run_compliance:
         description: 'Run compliance scan (extra charge)'
         required: false
         default: 'false'
-
 jobs:
   trivy-scan:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+        
       - name: Container Scan
-        uses: aquasec/trivy-action@master
+        uses: aquasec/trivy-action@v0.16.0  # Use specific version instead of master
         with:
           image-ref: '${{ vars.CLIENT_IMAGE }}'
           format: 'json'
           output: 'trivy-container-results.json'
           severity: 'CRITICAL,HIGH'
-
+          
+      - name: Install Trivy CLI
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.42.0
+          
       - name: IaC Scan
         run: |
           trivy config --severity CRITICAL,HIGH --format json \
           --output trivy-iac-results.json ./iac/
-
+          
+      - name: Upload Trivy results
+        uses: actions/upload-artifact@v3
+        with:
+          name: trivy-results
+          path: trivy-*-results.json
+          
   checkov-scan:
     runs-on: ubuntu-latest
-    needs: [trivy-scan]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+        
       - name: IaC Policy Check
         uses: bridgecrewio/checkov-action@v12
         with:
           directory: ./iac/
           output_format: json
           output_file_path: checkov-results.json
-
-  # ==============================================
-  # COMPLIANCE ADD-ON (Uncomment for paid tier)
-  # ----------------------------------------------
-  # scout-suite:
-  #   runs-on: ubuntu-latest
-  #   needs: [trivy-scan]
-  #   if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_compliance == 'true' }}
-  #   steps:
-  #     - name: Checkout code
-  #       uses: actions/checkout@v4
-  # 
-  #     - name: AWS Compliance Audit
-  #       run: |
-  #         docker run -v $(pwd):/app/scoutsuite-results \
-  #           -e AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY }} \
-  #           -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_KEY }} \
-  #           scoutsuite/scoutsuite scout.py aws
-  # 
-  #     - name: Archive Results
-  #       uses: actions/upload-artifact@v3
-  #       with:
-  #         name: scoutsuite-report
-  #         path: scoutsuite-results/
-  # ==============================================
-
+          
+      - name: Upload Checkov results
+        uses: actions/upload-artifact@v3
+        with:
+          name: checkov-results
+          path: checkov-results.json
+          
   ai-remediation:
     runs-on: ubuntu-latest
     needs: [trivy-scan, checkov-scan]
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Download scan results
+        uses: actions/download-artifact@v3
+        with:
+          path: ./results
+          
       - name: Generate AI Fixes
         run: |
           pip install openai
           python3 scripts/ai-remediation.py \
-            --trivy trivy-*-results.json \
-            --checkov checkov-results.json
+            --trivy ./results/trivy-results/trivy-*-results.json \
+            --checkov ./results/checkov-results/checkov-results.json
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-
+          
+      - name: Upload remediation results
+        uses: actions/upload-artifact@v3
+        with:
+          name: ai-remediation
+          path: ai-remediation-*.json
+          
   report:
     runs-on: ubuntu-latest
-    needs: [ai-remediation]  # Add 'scout-suite' here if enabling compliance
+    needs: [ai-remediation]
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: ./artifacts
+          
       - name: Generate Report
-        run: python3 scripts/generate-report.py
-
+        run: |
+          python3 scripts/generate-report.py \
+            --trivy ./artifacts/trivy-results/trivy-*-results.json \
+            --checkov ./artifacts/checkov-results/checkov-results.json \
+            --remediation ./artifacts/ai-remediation/ai-remediation-*.json
+            
       - name: Upload Report
         uses: actions/upload-artifact@v3
         with:
