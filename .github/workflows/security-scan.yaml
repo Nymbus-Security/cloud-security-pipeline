@@ -4,7 +4,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  workflow_dispatch:
+  workflow_dispatch:  # Allows manual triggers for add-ons
     inputs:
       run_compliance:
         description: 'Run compliance scan (extra charge)'
@@ -17,25 +17,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         
-      - name: Container Scan
-        uses: aquasec/trivy-action@v0.16.0  # Use specific version instead of master
-        with:
-          image-ref: '${{ vars.CLIENT_IMAGE }}'
-          format: 'json'
-          output: 'trivy-container-results.json'
-          severity: 'CRITICAL,HIGH'
-          
-      - name: Install Trivy CLI
+      - name: Install Trivy
         run: |
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.42.0
           
+      - name: Container Scan
+        # Using Trivy CLI directly instead of the Action
+        run: |
+          if [ -n "${{ vars.CLIENT_IMAGE }}" ]; then
+            trivy image --format json --output trivy-container-results.json --severity CRITICAL,HIGH ${{ vars.CLIENT_IMAGE }}
+          else
+            echo "No CLIENT_IMAGE provided, skipping container scan"
+            echo '{"Results":[]}' > trivy-container-results.json
+          fi
+          
       - name: IaC Scan
         run: |
-          trivy config --severity CRITICAL,HIGH --format json \
-          --output trivy-iac-results.json ./iac/
+          if [ -d "./iac" ]; then
+            trivy config --severity CRITICAL,HIGH --format json --output trivy-iac-results.json ./iac/
+          else
+            echo "No iac directory found, skipping IaC scan"
+            echo '{"Results":[]}' > trivy-iac-results.json
+          fi
           
       - name: Upload Trivy results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: trivy-results
           path: trivy-*-results.json
@@ -54,7 +60,7 @@ jobs:
           output_file_path: checkov-results.json
           
       - name: Upload Checkov results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: checkov-results
           path: checkov-results.json
@@ -67,21 +73,28 @@ jobs:
         uses: actions/checkout@v4
         
       - name: Download scan results
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: ./results
+          
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
           
       - name: Generate AI Fixes
         run: |
           pip install openai
+          mkdir -p scripts
+          cp AI-Remediation.py scripts/ai-remediation.py || echo "Using existing scripts/ai-remediation.py"
           python3 scripts/ai-remediation.py \
-            --trivy ./results/trivy-results/trivy-*-results.json \
-            --checkov ./results/checkov-results/checkov-results.json
+            --trivy "./results/trivy-results/trivy-*-results.json" \
+            --checkov "./results/checkov-results/checkov-results.json"
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           
       - name: Upload remediation results
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ai-remediation
           path: ai-remediation-*.json
@@ -93,20 +106,30 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Install dependencies
+        run: pip install jinja2
+        
       - name: Download all artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: ./artifacts
           
       - name: Generate Report
         run: |
+          mkdir -p scripts
+          cp generate-report.py scripts/generate-report.py || echo "Using existing scripts/generate-report.py"
           python3 scripts/generate-report.py \
-            --trivy ./artifacts/trivy-results/trivy-*-results.json \
-            --checkov ./artifacts/checkov-results/checkov-results.json \
-            --remediation ./artifacts/ai-remediation/ai-remediation-*.json
+            --trivy "./artifacts/trivy-results/trivy-*-results.json" \
+            --checkov "./artifacts/checkov-results/checkov-results.json" \
+            --remediation "./artifacts/ai-remediation/ai-remediation-*.json"
             
       - name: Upload Report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: security-report
           path: report.html
