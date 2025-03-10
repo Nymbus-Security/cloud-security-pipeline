@@ -97,8 +97,6 @@ jobs:
           python3 scripts/AI-Remediation.py \
             --trivy "./results/trivy-results/trivy-*-results.json" \
             --checkov "./results/checkov-results/checkov-results.json" \
-            --client "$CLIENT_NAME" \
-            --resource-group "$RESOURCE_GROUP"
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
