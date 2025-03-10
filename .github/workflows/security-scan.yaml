@@ -77,6 +77,9 @@ jobs:
   ai-remediation:
     runs-on: ubuntu-latest
     needs: [trivy-scan, checkov-scan]
+    env:
+      CLIENT_NAME: ${{ github.event.inputs.client_name }}
+      RESOURCE_GROUP: ${{ github.event.inputs.resource_group }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -97,6 +100,8 @@ jobs:
           python3 scripts/AI-Remediation.py \
             --trivy "./results/trivy-results/trivy-*-results.json" \
             --checkov "./results/checkov-results/checkov-results.json" \
+            --client "$CLIENT_NAME" \
+            --resource-group "$RESOURCE_GROUP"
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
@@ -109,6 +114,9 @@ jobs:
   report:
     runs-on: ubuntu-latest
     needs: [ai-remediation]
+    env:
+      CLIENT_NAME: ${{ github.event.inputs.client_name }}
+      RESOURCE_GROUP: ${{ github.event.inputs.resource_group }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
