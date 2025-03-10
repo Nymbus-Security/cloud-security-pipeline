@@ -86,8 +86,8 @@ jobs:
         run: |
           pip install openai
           mkdir -p scripts
-          cp AI-Remediation.py scripts/ai-remediation.py || echo "Using existing scripts/ai-remediation.py"
-          python3 scripts/ai-remediation.py \
+          cp AI-Remediation.py scripts/AI-Remediation.py || echo "Using existing scripts/AI-Remediation.py"
+          python3 scripts/AI-Remediation.py \
             --trivy "./results/trivy-results/trivy-*-results.json" \
             --checkov "./results/checkov-results/checkov-results.json"
         env:
