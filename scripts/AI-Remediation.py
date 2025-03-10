@@ -9,6 +9,7 @@ import glob
 # Configure logging
 logging.basicConfig(filename='pipeline.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+
 def load_json(file_path):
     """Load JSON data from a file."""
     try:
@@ -18,16 +19,18 @@ def load_json(file_path):
         logging.error(f"Failed to load {file_path}: {str(e)}")
         return {}
 
-def generate_fix(vulnerability):
-    """Generate a fix using OpenAI's GPT-3.5-turbo."""
+
+def generate_fix(vulnerability, client=None, resource_group=None):
+    """Generate a fix using OpenAI's GPT-3.5-turbo, customized with client context."""
     retries = 3
+    context = f"Client: {client}. Resource Group: {resource_group}." if client and resource_group else ""
     for i in range(retries):
         try:
             response = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
                 messages=[
                     {"role": "system", "content": "You are a cloud security engineer. Provide a step-by-step fix in plain English."},
-                    {"role": "user", "content": f"Explain how to fix: {vulnerability}"}
+                    {"role": "user", "content": f"{context} Explain how to fix: {vulnerability}"}
                 ],
                 temperature=0.3  # Keep responses technical
             )
@@ -37,12 +40,18 @@ def generate_fix(vulnerability):
             time.sleep(2)  # Wait before retrying
     return "Failed to generate fix after retries."
 
+
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Generate AI remediation for security findings')
     parser.add_argument('--trivy', required=True, help='Path to Trivy results file(s)')
     parser.add_argument('--checkov', required=True, help='Path to Checkov results file')
+    parser.add_argument('--client', required=False, help='Client name for contextual AI fix')
+    parser.add_argument('--resource-group', required=False, help='Resource group or cloud target')
     args = parser.parse_args()
+
+    client_name = args.client if args.client else "generic"
+    resource_group = args.resource_group if args.resource_group else "unknown"
 
     # Load scan results
     trivy_files = glob.glob(args.trivy)
@@ -51,7 +60,7 @@ def main():
         trivy_data = load_json(trivy_file)
         if trivy_data:
             trivy_results.append(trivy_data)
-    
+
     checkov_results = load_json(args.checkov)
 
     # Set OpenAI API key
@@ -64,19 +73,24 @@ def main():
     for result_set in trivy_results:
         for result in result_set.get('Results', []):
             for vuln in result.get('Vulnerabilities', []):
-                vuln['AI_Fix'] = generate_fix(vuln['Description'])
+                vuln['AI_Fix'] = generate_fix(vuln['Description'], client_name, resource_group)
 
     # Process Checkov results
     for check in checkov_results.get('results', {}).get('failed_checks', []):
-        check['AI_Fix'] = generate_fix(check['check_name'])
+        check['AI_Fix'] = generate_fix(check['check_name'], client_name, resource_group)
 
-    # Save enhanced results
-    with open('ai-remediation-results.json', 'w') as f:
+    # Save enhanced results with client-specific name
+    output_filename = f'ai-remediation-results-{client_name}.json'
+    with open(output_filename, 'w') as f:
         json.dump({
-            'trivy': trivy_results, 
+            'client': client_name,
+            'resource_group': resource_group,
+            'trivy': trivy_results,
             'checkov': checkov_results
         }, f, indent=2)
-    logging.info("AI remediation completed successfully.")
+
+    logging.info(f"AI remediation completed successfully. Output file: {output_filename}")
+
 
 if __name__ == "__main__":
     main()
