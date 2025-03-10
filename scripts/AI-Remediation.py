@@ -9,6 +9,10 @@ import glob
 # Configure logging
 logging.basicConfig(filename='pipeline.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# -----------------------------------------------
+# Helper Functions
+# -----------------------------------------------
+
 def load_json(file_path):
     """Load JSON data from a file."""
     try:
@@ -24,7 +28,7 @@ def generate_ai_response(prompt):
     for i in range(retries):
         try:
             response = openai.ChatCompletion.create(
-                model="gpt-4",  # You can change this to "gpt-3.5-turbo" if desired
+                model="gpt-4",  # You can switch to gpt-3.5-turbo if needed
                 messages=[
                     {"role": "system", "content": "You are a cloud security and compliance expert."},
                     {"role": "user", "content": prompt}
@@ -37,32 +41,57 @@ def generate_ai_response(prompt):
             time.sleep(2)
     return "Failed to generate AI response after retries."
 
-def generate_compliance_explanation(vuln, frameworks):
-    prompt = f"Explain how the following finding violates these compliance frameworks ({frameworks}): {vuln}. Provide recommendations to address this issue."
+# -----------------------------------------------
+# AI-Driven Functions for Fixes & Compliance
+# -----------------------------------------------
+
+def generate_remediation(vuln_description):
+    prompt = f"""
+    You are a cybersecurity expert. Provide a step-by-step, actionable remediation plan for the following vulnerability or misconfiguration. Be clear and concise.
+
+    Finding: {vuln_description}
+    """
     return generate_ai_response(prompt)
 
-def generate_devsecops_recommendation(findings_summary):
-    prompt = f"Given these security findings: {findings_summary}, recommend actionable DevSecOps pipeline improvements that can prevent such issues in the future."
+def generate_compliance_mapping(vuln_description):
+    prompt = f"""
+    You are a cybersecurity compliance expert. Map the following finding to NIST 800-53, CIS Benchmarks, PCI DSS, ISO 27001, SOC 2, and HIPAA.
+    For each framework, list the specific control IDs violated and explain why this finding violates them.
+    Also provide a one-sentence recommendation for remediation in each framework.
+
+    Finding: {vuln_description}
+    """
     return generate_ai_response(prompt)
+
+def generate_devsecops_recommendations(findings_summary):
+    prompt = f"""
+    You are a DevSecOps and security engineering expert. Given the following summary of security findings, recommend at least 3 actionable improvements to the DevSecOps pipeline or process that would help prevent or catch these issues earlier.
+
+    Findings Summary: {findings_summary}
+    """
+    return generate_ai_response(prompt)
+
+# -----------------------------------------------
+# Main Function
+# -----------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description='Generate AI remediation for security findings with compliance mapping.')
+    parser = argparse.ArgumentParser(description='Generate AI remediation and compliance mapping for security findings.')
     parser.add_argument('--trivy', required=True, help='Path to Trivy results file(s)')
     parser.add_argument('--checkov', required=True, help='Path to Checkov results file')
     parser.add_argument('--client', required=True, help='Client name')
     parser.add_argument('--resource-group', required=True, help='Resource Group or Project name')
-    parser.add_argument('--compliance-map', required=True, help='Path to compliance mapping JSON file')
     args = parser.parse_args()
 
-    # Load data
+    # Load Trivy and Checkov results
     trivy_files = glob.glob(args.trivy)
-    trivy_results, checkov_results = [], load_json(args.checkov)
-    compliance_map = load_json(args.compliance_map)
+    trivy_results = []
+    checkov_results = load_json(args.checkov)
 
-    # Load API Key
+    # Load OpenAI API Key
     openai.api_key = os.getenv('OPENAI_API_KEY')
     if not openai.api_key:
-        logging.error("OpenAI API key not found in environment variables.")
+        logging.error("OpenAI API key not found. Please set it in environment variables.")
         return
 
     # Process Trivy Results
@@ -71,35 +100,38 @@ def main():
         if data:
             for result in data.get('Results', []):
                 for vuln in result.get('Vulnerabilities', []):
-                    finding_desc = vuln['Description']
-                    vuln['AI_Fix'] = generate_ai_response(f"Explain how to fix: {finding_desc}")
-                    vuln['Compliance_Explanation'] = generate_compliance_explanation(finding_desc, compliance_map.get(vuln['VulnerabilityID'], 'NIST, CIS, PCI DSS, ISO 27001, SOC 2, HIPAA'))
-
+                    description = vuln['Description']
+                    vuln['AI_Fix'] = generate_remediation(description)
+                    vuln['Compliance_Explanation'] = generate_compliance_mapping(description)
             trivy_results.append(data)
 
     # Process Checkov Results
     for check in checkov_results.get('results', {}).get('failed_checks', []):
-        finding_desc = check['check_name']
-        check['AI_Fix'] = generate_ai_response(f"Explain how to fix: {finding_desc}")
-        check['Compliance_Explanation'] = generate_compliance_explanation(finding_desc, compliance_map.get(check['check_id'], 'NIST, CIS, PCI DSS, ISO 27001, SOC 2, HIPAA'))
+        description = check['check_name'] + " - " + check.get('check_details', '')
+        check['AI_Fix'] = generate_remediation(description)
+        check['Compliance_Explanation'] = generate_compliance_mapping(description)
 
-    # Generate DevSecOps Recommendations
-    findings_summary = f"Trivy: {len(trivy_results)} sets of results, Checkov: {len(checkov_results.get('results', {}).get('failed_checks', []))} failed checks"
-    devsecops_recommendations = generate_devsecops_recommendation(findings_summary)
+    # Summarize findings for DevSecOps Recommendations
+    trivy_findings_count = sum(len(result.get('Vulnerabilities', [])) for trivy in trivy_results for result in trivy.get('Results', []))
+    checkov_findings_count = len(checkov_results.get('results', {}).get('failed_checks', []))
+    findings_summary = f"Trivy Findings: {trivy_findings_count}, Checkov Findings: {checkov_findings_count}"
 
-    # Save results
-    result_file = f"ai-remediation-results-{args.client}.json"
-    with open(result_file, 'w') as f:
+    devsecops_recommendations = generate_devsecops_recommendations(findings_summary)
+
+    # Save combined results
+    output_file = f"ai-remediation-results-{args.client}.json"
+    with open(output_file, 'w') as f:
         json.dump({
-            'client': args.client,
-            'resource_group': args.resource_group,
-            'trivy': trivy_results,
-            'checkov': checkov_results,
-            'devsecops_recommendations': devsecops_recommendations
+            "client": args.client,
+            "resource_group": args.resource_group,
+            "trivy": trivy_results,
+            "checkov": checkov_results,
+            "devsecops_recommendations": devsecops_recommendations
         }, f, indent=2)
 
-    logging.info(f"AI remediation completed for {args.client}. Output saved to {result_file}")
+    logging.info(f"AI remediation completed for {args.client}. Output saved to {output_file}")
 
 if __name__ == "__main__":
     main()
+
 
