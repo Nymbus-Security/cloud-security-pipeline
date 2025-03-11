@@ -1,114 +1,111 @@
 name: Cloud Security Assessment Pipeline
 
 on:
-  workflow_dispatch:  # Manual trigger for client assessments
+  workflow_dispatch:
     inputs:
       scan_type:
-        description: 'Scan Type (full, iac-only, compliance-only, container-only, policy-only)'
+        description: 'Scan Type (full, iac-only, compliance-only, container-only, policy-only)' # ✅ You can choose what to run
         required: true
         default: 'full'
-      client_name:
-        description: 'Client Name (e.g., client-a)'
+      clients:
+        description: 'Comma-separated list of client names (e.g., client-a,client-b)'
         required: true
-      resource_group:
-        description: 'Azure Resource Group / AWS VPC / GCP Project'
+        default: 'test-client'
+      resource_groups:
+        description: 'Comma-separated list of resource groups/projects matching clients (e.g., rg-a,rg-b)'
         required: true
+        default: 'test-rg'
 
 env:
-  CLIENT_NAME: ${{ github.event.inputs.client_name }}
-  RESOURCE_GROUP: ${{ github.event.inputs.resource_group }}
   SCAN_TYPE: ${{ github.event.inputs.scan_type }}
 
 jobs:
-  # -----------------------------------------------------------
-  # Matrix-based parallel scan for multiple clients
-  # -----------------------------------------------------------
   security-scan:
     runs-on: ubuntu-latest
+
+    # ✅ Matrix to run multiple clients and resource groups in parallel
     strategy:
       matrix:
-        client: [${{ env.CLIENT_NAME }}]  # Can be expanded to multiple clients in future
+        client: ${{ fromJson(format('["{0}"]', join('","', split(github.event.inputs.clients, ',')))) }}
+        resource_group: ${{ fromJson(format('["{0}"]', join('","', split(github.event.inputs.resource_groups, ',')))) }}
+
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+    - name: Checkout Repository
+      uses: actions/checkout@v4
 
-      - name: Install Tools (Trivy, OPA, Conftest, Python)
-        run: |
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.42.0
-          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64 && chmod +x opa && mv opa /usr/local/bin
-          curl -L https://github.com/open-policy-agent/conftest/releases/latest/download/conftest_Linux_x86_64.tar.gz | tar xz && chmod +x conftest && mv conftest /usr/local/bin
-          sudo apt update && sudo apt install -y python3 python3-pip
-          pip3 install openai weasyprint jinja2
+    # ✅ Install all required tools, adjust versions as needed
+    - name: Install Tools (Trivy, OPA, Conftest, Python, WeasyPrint)
+      run: |
+        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.42.0
+        curl -L https://github.com/open-policy-agent/conftest/releases/latest/download/conftest_Linux_x86_64.tar.gz | tar xz && chmod +x conftest && mv conftest /usr/local/bin
+        curl -sSL https://steampipe.io/install | sh
+        sudo apt update && sudo apt install -y python3 python3-pip libpangocairo-1.0-0
+        pip3 install openai weasyprint jinja2
 
-  # -----------------------------------------------------------
-  # IaC and Container Scans (Conditional)
-  # -----------------------------------------------------------
-      - name: Trivy IaC and Container Scan
-        if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'iac-only' || env.SCAN_TYPE == 'container-only'
-        run: |
-          mkdir -p results
-          if [ -d "./iac" ]; then
-            trivy config --severity CRITICAL,HIGH --format json --output results/trivy-iac-results.json ./iac/
-          else
-            echo '{"Results":[]}' > results/trivy-iac-results.json
-          fi
-          if [ -n "${{ vars.CLIENT_IMAGE }}" ]; then
-            trivy image --format json --output results/trivy-container-results.json --severity CRITICAL,HIGH ${{ vars.CLIENT_IMAGE }}
-          else
-            echo '{"Results":[]}' > results/trivy-container-results.json
-          fi
+    # ✅ Static analysis for Terraform, Kubernetes IaC using Checkov
+    - name: Checkov IaC Security Scan
+      if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'iac-only'
+      uses: bridgecrewio/checkov-action@v12
+      with:
+        directory: ./iac/
+        output_format: json
+        output_file_path: results/checkov-results.json
 
-  # -----------------------------------------------------------
-  # Checkov IaC Policy Scan (Conditional)
-  # -----------------------------------------------------------
-      - name: Checkov Policy Scan
-        if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'iac-only' || env.SCAN_TYPE == 'compliance-only'
-        uses: bridgecrewio/checkov-action@v12
-        with:
-          directory: ./iac/
-          output_format: json
-          output_file_path: results/checkov-results.json
+    # ✅ Regula for Terraform compliance (NIST, PCI, ISO, etc.)
+    - name: Regula Terraform Compliance Scan
+      if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'iac-only'
+      run: |
+        curl -sSL https://github.com/fugue/regula/releases/download/v3.1.0/regula-linux-amd64.tar.gz | tar xz
+        ./regula run ./iac/ --format json > results/regula-results.json || echo '{"results":[]}' > results/regula-results.json
 
-  # -----------------------------------------------------------
-  # Policy as Code: OPA and Conftest Scans (Conditional)
-  # -----------------------------------------------------------
-      - name: Policy-as-Code (OPA & Conftest)
-        if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'policy-only'
-        run: |
-          mkdir -p results
-          opa test ./iac/ --format=json > results/opa-results.json || echo '{"results":[]}' > results/opa-results.json
-          conftest test ./iac/ --output json > results/conftest-results.json || echo '{"results":[]}' > results/conftest-results.json
+    # ✅ Prowler for AWS (or adjust to Azure/GCP)
+    - name: Prowler AWS Compliance Scan
+      if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'compliance-only'
+      run: |
+        git clone https://github.com/prowler-cloud/prowler
+        cd prowler
+        ./prowler aws --output json --output-file ../results/prowler-aws-results.json
 
-  # -----------------------------------------------------------
-  # AI Remediation & Compliance Recommendations
-  # -----------------------------------------------------------
-      - name: AI Remediation & Compliance Explanation
-        if: env.SCAN_TYPE != 'policy-only'
-        run: |
-          mkdir -p scripts
-          python3 scripts/AI-Remediation.py \
-            --trivy "results/trivy-*-results.json" \
-            --checkov "results/checkov-results.json" \
-            --client "${CLIENT_NAME}" \
-            --resource-group "${RESOURCE_GROUP}"
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    # ✅ Steampipe SQL queries for AWS compliance (customizable for Azure/GCP)
+    - name: Steampipe AWS Scan
+      if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'compliance-only'
+      run: |
+        steampipe plugin install aws
+        steampipe query "select * from aws_s3_bucket where acl = 'public-read'" --output json > results/steampipe-results.json
 
-  # -----------------------------------------------------------
-  # Report Generation (HTML to PDF)
-  # -----------------------------------------------------------
-      - name: Generate Client Report (PDF)
-        run: |
-          mkdir -p report
-          python3 scripts/generate-report.py \
-            --trivy "results/trivy-*-results.json" \
-            --checkov "results/checkov-results.json" \
-            --opa "results/opa-results.json" \
-            --conftest "results/conftest-results.json" \
-            --ai "ai-remediation-results-${CLIENT_NAME}.json" \
-            --client "${CLIENT_NAME}" \
-            --resource-group "${RESOURCE_GROUP}"
-          weasyprint report/report.html report/report-${CLIENT_NAME}.pdf
+    # ✅ AI Remediation and Compliance Mapping (Client-Specific)
+    - name: AI Remediation & Compliance Explanation
+      run: |
+        python3 scripts/AI-Remediation.py \
+          --trivy "results/trivy-*-results.json" \
+          --checkov "results/checkov-results.json" \
+          --client "${{ matrix.client }}" \
+          --resource-group "${{ matrix.resource_group }}"
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+    # ✅ Generate professional PDF report for client
+    - name: Generate Client Report (PDF)
+      run: |
+        python3 scripts/generate-report.py \
+          --trivy "results/trivy-*-results.json" \
+          --checkov "results/checkov-results.json" \
+          --opa "results/opa-results.json" \
+          --conftest "results/conftest-results.json" \
+          --ai "ai-remediation-results-${{ matrix.client }}.json" \
+          --client "${{ matrix.client }}" \
+          --resource-group "${{ matrix.resource_group }}"
+        weasyprint report/report.html report/report-${{ matrix.client }}.pdf
+
+    # ✅ Upload final PDF report and raw results for review
+    - name: Upload Security Report and Results
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-report-${{ matrix.client }}
+        path: |
+          report/report-${{ matrix.client }}.pdf
+          results/
+
 
   # -----------------------------------------------------------
   # Upload Artifacts
