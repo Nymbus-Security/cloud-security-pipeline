@@ -26,8 +26,11 @@ jobs:
     # ✅ Matrix for parallel client scans
     strategy:
       matrix:
-        client: ${{ fromJson(format('["{0}"]', join('","', split(github.event.inputs.clients, ',')))) }}
-        resource_group: ${{ fromJson(format('["{0}"]', join('","', split(github.event.inputs.resource_groups, ',')))) }}
+        include:
+          - client: client-a
+            resource_group: rg-a
+          - client: client-b
+            resource_group: rg-b
 
     steps:
     - name: Checkout Repository
