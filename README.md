@@ -28,3 +28,9 @@ The **Nymbus Security Cloud Security Assessment Pipeline** is a fully automated 
 ```bash
 git clone https://github.com/Nymbus-Security/cloud-security-pipeline.git
 cd cloud-security-pipeline
+```
+
+## 🔑 **Prerequisites**
+- GitHub Secrets (Required):
+    - OPENAI_API_KEY – For AI remediation and policy generation.
+-GitHub Actions enabled in your repository
