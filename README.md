@@ -1,6 +1,6 @@
 ## 🌐 Overview
 
-The **Nymbus Security Cloud Security Assessment Pipeline** is a fully automated **Cloud and IaC scanning framework** that performs security and compliance assessments across multiple client environments. It leverages **AI remediation**, **custom Policy-as-Code (OPA/Conftest)** generation, and **automated PDF reporting**, making it ideal for **managed service offerings** and **enterprise security assessments**.
+This **Cloud Security Assessment Pipeline** is a fully automated **Cloud and IaC scanning framework** that performs security and compliance assessments across multiple client environments. It leverages **AI remediation**, **custom Policy-as-Code (OPA/Conftest)** generation, and **automated PDF reporting**, making it ideal for **managed service offerings** and **enterprise security assessments**.
 
 ---
 
