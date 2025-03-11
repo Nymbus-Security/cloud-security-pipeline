@@ -40,15 +40,16 @@ jobs:
       # ✅ Tool Installations (Trivy, Conftest, Steampipe, Python)
       - name: Install Tools (Trivy, OPA, Conftest, Python, WeasyPrint)
         run: |
-          curl -LO https://github.com/aquasecurity/trivy/releases/download/v0.42.0/trivy_0.42.0_Linux-64bit.tar.gz
-          tar xvf trivy_0.42.0_Linux-64bit.tar.gz
-          sudo mv trivy /usr/local/bin/
-
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.42.0
+          
+      # ✅ Install Conftest for OPA
           curl -L https://github.com/open-policy-agent/conftest/releases/latest/download/conftest_Linux_x86_64.tar.gz | tar xz
           chmod +x conftest && sudo mv conftest /usr/local/bin/
 
+      # ✅ Install Steampipe
           curl -sSL https://steampipe.io/install | sh
 
+      # ✅ Install Python and WeasyPrint
           sudo apt update && sudo apt install -y python3 python3-pip libpangocairo-1.0-0
           pip3 install openai weasyprint jinja2
 
