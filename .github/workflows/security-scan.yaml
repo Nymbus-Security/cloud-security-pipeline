@@ -8,7 +8,7 @@ on:
         required: true
         default: 'full'
       clients:
-        description: 'Comma-separated list of client names (e.g., client-a,client-b)' # ✅ List of clients to scan
+        description: 'Comma-separated list of client names (e.g., client-a,client-b)' # ✅ List of clients to scan (static for now)
         required: true
         default: 'test-client'
       resource_groups:
@@ -19,117 +19,103 @@ on:
 env:
   SCAN_TYPE: ${{ github.event.inputs.scan_type }}
 
-        jobs:
-          security-scan:
-            runs-on: ubuntu-latest
-        
-            strategy:
-              matrix:
-                include:
-                  - client: client-a
-                    resource_group: rg-a
-                  - client: client-b
-                    resource_group: rg-b
-        
-            steps:
-              - name: Checkout Repository
-                uses: actions/checkout@v4
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - client: client-a
+            resource_group: rg-a
+          - client: client-b
+            resource_group: rg-b
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
       - name: Install Tools (Trivy, OPA, Conftest, Python, WeasyPrint)
         run: |
-          # ✅ Fixed Trivy install - downloading correct release binary
           curl -LO https://github.com/aquasecurity/trivy/releases/download/v0.42.0/trivy_0.42.0_Linux-64bit.tar.gz
           tar zxvf trivy_0.42.0_Linux-64bit.tar.gz
           sudo mv trivy /usr/local/bin/
           
-          # ✅ Conftest install for OPA policy testing
           curl -L https://github.com/open-policy-agent/conftest/releases/latest/download/conftest_Linux_x86_64.tar.gz | tar xz
           chmod +x conftest && sudo mv conftest /usr/local/bin/
 
-          # ✅ Steampipe install for compliance queries
           curl -sSL https://steampipe.io/install | sh
 
-          # ✅ Python and WeasyPrint (PDF generation)
           sudo apt update && sudo apt install -y python3 python3-pip libpangocairo-1.0-0
           pip3 install openai weasyprint jinja2
 
+      - name: Checkov IaC Security Scan
+        if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'iac-only'
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: ./iac/
+          output_format: json
+          output_file_path: results/checkov-results.json
 
-    # ✅ Checkov for IaC security
-    - name: Checkov IaC Security Scan
-      if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'iac-only'
-      uses: bridgecrewio/checkov-action@v12
-      with:
-        directory: ./iac/
-        output_format: json
-        output_file_path: results/checkov-results.json
+      - name: Regula Terraform Compliance Scan
+        if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'iac-only'
+        run: |
+          curl -sSL https://github.com/fugue/regula/releases/download/v3.1.0/regula-linux-amd64.tar.gz | tar xz
+          ./regula run ./iac/ --format json > results/regula-results.json || echo '{"results":[]}' > results/regula-results.json
 
-    # ✅ Regula for compliance checks
-    - name: Regula Terraform Compliance Scan
-      if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'iac-only'
-      run: |
-        curl -sSL https://github.com/fugue/regula/releases/download/v3.1.0/regula-linux-amd64.tar.gz | tar xz
-        ./regula run ./iac/ --format json > results/regula-results.json || echo '{"results":[]}' > results/regula-results.json
+      - name: Prowler AWS Compliance Scan
+        if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'compliance-only'
+        run: |
+          git clone https://github.com/prowler-cloud/prowler
+          cd prowler
+          ./prowler aws --output json --output-file ../results/prowler-aws-results.json
 
-    # ✅ Prowler for AWS compliance
-    - name: Prowler AWS Compliance Scan
-      if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'compliance-only'
-      run: |
-        git clone https://github.com/prowler-cloud/prowler
-        cd prowler
-        ./prowler aws --output json --output-file ../results/prowler-aws-results.json
+      - name: Steampipe AWS Scan
+        if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'compliance-only'
+        run: |
+          steampipe plugin install aws
+          steampipe query "select * from aws_s3_bucket where acl = 'public-read'" --output json > results/steampipe-results.json
 
-    # ✅ Steampipe for dynamic queries
-    - name: Steampipe AWS Scan
-      if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'compliance-only'
-      run: |
-        steampipe plugin install aws
-        steampipe query "select * from aws_s3_bucket where acl = 'public-read'" --output json > results/steampipe-results.json
+      - name: AI Remediation & Compliance Explanation
+        run: |
+          python3 scripts/AI-Remediation.py \
+            --trivy "results/trivy-*-results.json" \
+            --checkov "results/checkov-results.json" \
+            --client "${{ matrix.client }}" \
+            --resource-group "${{ matrix.resource_group }}"
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
-    # ✅ AI Remediation and Compliance Explanations
-    - name: AI Remediation & Compliance Explanation
-      run: |
-        python3 scripts/AI-Remediation.py \
-          --trivy "results/trivy-*-results.json" \
-          --checkov "results/checkov-results.json" \
-          --client "${{ matrix.client }}" \
-          --resource-group "${{ matrix.resource_group }}"
-      env:
-        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      - name: AI-Generated Custom Policies
+        run: |
+          python3 scripts/AI-Policy-Generator.py \
+            --ai "ai-remediation-results-${{ matrix.client }}.json" \
+            --client "${{ matrix.client }}"
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
-    # ✅ AI-Generated Rego/Conftest Policies (PaC)
-    - name: AI-Generated Custom Policies
-      run: |
-        python3 scripts/AI-Policy-Generator.py \
-          --ai "ai-remediation-results-${{ matrix.client }}.json" \
-          --client "${{ matrix.client }}"
-      env:
-        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      - name: Upload AI-Generated Policies
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-policies-${{ matrix.client }}
+          path: generated-policies/${{ matrix.client }}
 
-    # ✅ Upload AI-Generated Policies
-    - name: Upload AI-Generated Policies
-      uses: actions/upload-artifact@v4
-      with:
-        name: ai-policies-${{ matrix.client }}
-        path: generated-policies/${{ matrix.client }}
+      - name: Generate Client Report (PDF)
+        run: |
+          python3 scripts/generate-report.py \
+            --trivy "results/trivy-*-results.json" \
+            --checkov "results/checkov-results.json" \
+            --opa "results/opa-results.json" \
+            --conftest "results/conftest-results.json" \
+            --ai "ai-remediation-results-${{ matrix.client }}.json" \
+            --client "${{ matrix.client }}" \
+            --resource-group "${{ matrix.resource_group }}"
+          weasyprint report/report.html report/report-${{ matrix.client }}.pdf
 
-    # ✅ Generate Client PDF Report
-    - name: Generate Client Report (PDF)
-      run: |
-        python3 scripts/generate-report.py \
-          --trivy "results/trivy-*-results.json" \
-          --checkov "results/checkov-results.json" \
-          --opa "results/opa-results.json" \
-          --conftest "results/conftest-results.json" \
-          --ai "ai-remediation-results-${{ matrix.client }}.json" \
-          --client "${{ matrix.client }}" \
-          --resource-group "${{ matrix.resource_group }}"
-        weasyprint report/report.html report/report-${{ matrix.client }}.pdf
-
-    # ✅ Upload Final Client Report & Results
-    - name: Upload Security Report and Results
-      uses: actions/upload-artifact@v4
-      with:
-        name: security-report-${{ matrix.client }}
-        path: |
-          report/report-${{ matrix.client }}.pdf
-          results/
+      - name: Upload Security Report and Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-report-${{ matrix.client }}
+          path: |
+            report/report-${{ matrix.client }}.pdf
+            results/
