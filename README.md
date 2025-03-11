@@ -33,4 +33,4 @@ cd cloud-security-pipeline
 ## 🔑 **Prerequisites**
 - GitHub Secrets (Required):
     - OPENAI_API_KEY – For AI remediation and policy generation.
--GitHub Actions enabled in your repository
+- GitHub Actions enabled in your repository
