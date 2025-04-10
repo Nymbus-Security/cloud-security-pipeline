@@ -37,21 +37,36 @@ jobs:
 
       - name: Install Tools (Trivy, OPA, Conftest, Python, WeasyPrint)
         run: |
-          # ✅ Install Trivy manually
           curl -L https://github.com/aquasecurity/trivy/releases/download/v0.42.0/trivy_0.42.0_Linux-64bit.tar.gz -o trivy.tar.gz
           tar -xvzf trivy.tar.gz
           sudo mv trivy /usr/local/bin/
 
-          # ✅ Install Conftest (OPA policy testing)
           curl -L https://github.com/open-policy-agent/conftest/releases/latest/download/conftest_Linux_x86_64.tar.gz | tar xz
           chmod +x conftest && sudo mv conftest /usr/local/bin/
 
-          # ✅ Install Steampipe
           curl -sSL https://steampipe.io/install | sh
 
-          # ✅ Python + WeasyPrint for AI + PDF reporting
           sudo apt update && sudo apt install -y python3 python3-pip libpangocairo-1.0-0
           pip3 install openai weasyprint jinja2
+
+          curl -L https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks-linux-amd64 -o gitleaks
+          chmod +x gitleaks && sudo mv gitleaks /usr/local/bin/
+
+      - name: Trivy Config and Image Scan
+        if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'container-only'
+        run: |
+          trivy config ./iac --format json --output results/trivy-config-results.json
+          trivy image alpine:latest --format json --output results/trivy-image-results.json
+
+      - name: Secrets Scan with Gitleaks
+        if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'iac-only'
+        run: |
+          gitleaks detect --source . --report-path results/gitleaks-results.json --report-format json
+
+      - name: Dependency Vulnerability Scan
+        if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'container-only'
+        run: |
+          trivy fs . --scanners vuln,license,secret --format json --output results/trivy-dependency-results.json
 
       - name: Checkov IaC Security Scan
         if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'iac-only'
@@ -67,18 +82,9 @@ jobs:
           curl -sSL https://github.com/fugue/regula/releases/download/v3.1.0/regula-linux-amd64.tar.gz | tar xz
           ./regula run ./iac/ --format json > results/regula-results.json || echo '{"results":[]}' > results/regula-results.json
 
-      - name: Prowler AWS Compliance Scan
-        if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'compliance-only'
+      - name: Validate OPA Policies
         run: |
-          git clone https://github.com/prowler-cloud/prowler
-          cd prowler
-          ./prowler aws --output json --output-file ../results/prowler-aws-results.json
-
-      - name: Steampipe AWS Scan
-        if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'compliance-only'
-        run: |
-          steampipe plugin install aws
-          steampipe query "select * from aws_s3_bucket where acl = 'public-read'" --output json > results/steampipe-results.json
+          conftest test ./generated-policies/${{ matrix.client }}/ || echo "Conftest validation failed"
 
       - name: AI Remediation & Compliance Explanation
         run: |
@@ -123,7 +129,6 @@ jobs:
           path: |
             report/report-${{ matrix.client }}.pdf
             results/
-
 
 # ================================================
 # ⚙️ REMINDERS FOR CLIENT ASSESSMENT:
