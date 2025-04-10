@@ -51,7 +51,7 @@ jobs:
           chmod +x gitleaks && sudo mv gitleaks /usr/local/bin/gitleaks
 
           # ✅ Install Steampipe
-          curl -sSL https://raw.githubusercontent.com/turbot/steampipe/main/install.sh -o install-steampipe.sh
+          curl -sSL https://raw.githubusercontent.com/turbot/steampipe-install/main/install.sh -o install-steampipe.sh
           chmod +x install-steampipe.sh
           ./install-steampipe.sh
 
@@ -149,6 +149,7 @@ jobs:
           path: |
             report/report-${{ matrix.client }}.pdf
             results/
+
 
 
 # ================================================
