@@ -4,15 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       scan_type:
-        description: 'Scan Type (full, iac-only, compliance-only, container-only, policy-only)' # ✅ Choose scan type depending on assessment type
+        description: 'Scan Type (full, iac-only, compliance-only, container-only, policy-only)'
         required: true
         default: 'full'
       clients:
-        description: 'Comma-separated list of client names (e.g., client-a,client-b)' # ✅ Clients to scan (currently static matrix below)
+        description: 'Comma-separated list of client names (e.g., client-a,client-b)'
         required: true
         default: 'test-client'
       resource_groups:
-        description: 'Comma-separated list of resource groups/projects (e.g., rg-a,rg-b)' # ✅ Matching resource groups/accounts
+        description: 'Comma-separated list of resource groups/projects (e.g., rg-a,rg-b)'
         required: true
         default: 'test-rg'
 
@@ -23,37 +23,36 @@ jobs:
   security-scan:
     runs-on: ubuntu-latest
 
-    # ✅ UPDATE THIS SECTION TO ADD CLIENT/RESOURCE GROUP PAIRS FOR EACH NEW CLIENT ASSESSMENT
     strategy:
       matrix:
         include:
-          - client: client-a              # 🔁 Replace 'client-a' with actual client name
-            resource_group: rg-a          # 🔁 Replace 'rg-a' with client's resource group/account
+          - client: client-a
+            resource_group: rg-a
           - client: client-b
             resource_group: rg-b
-    # ⚠️ Add or remove client-resource_group pairs as needed
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # ✅ Tool Installations (Trivy, Conftest, Steampipe, Python)
       - name: Install Tools (Trivy, OPA, Conftest, Python, WeasyPrint)
         run: |
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.42.0
-          
-      # ✅ Install Conftest for OPA
+          # ✅ Install Trivy manually
+          curl -L https://github.com/aquasecurity/trivy/releases/download/v0.42.0/trivy_0.42.0_Linux-64bit.tar.gz -o trivy.tar.gz
+          tar -xvzf trivy.tar.gz
+          sudo mv trivy /usr/local/bin/
+
+          # ✅ Install Conftest (OPA policy testing)
           curl -L https://github.com/open-policy-agent/conftest/releases/latest/download/conftest_Linux_x86_64.tar.gz | tar xz
           chmod +x conftest && sudo mv conftest /usr/local/bin/
 
-      # ✅ Install Steampipe
+          # ✅ Install Steampipe
           curl -sSL https://steampipe.io/install | sh
 
-      # ✅ Install Python and WeasyPrint
+          # ✅ Python + WeasyPrint for AI + PDF reporting
           sudo apt update && sudo apt install -y python3 python3-pip libpangocairo-1.0-0
           pip3 install openai weasyprint jinja2
 
-      # ✅ IaC Security Scans (Checkov + Regula)
       - name: Checkov IaC Security Scan
         if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'iac-only'
         uses: bridgecrewio/checkov-action@v12
@@ -68,7 +67,6 @@ jobs:
           curl -sSL https://github.com/fugue/regula/releases/download/v3.1.0/regula-linux-amd64.tar.gz | tar xz
           ./regula run ./iac/ --format json > results/regula-results.json || echo '{"results":[]}' > results/regula-results.json
 
-      # ✅ Compliance Scans (AWS via Prowler, Steampipe)
       - name: Prowler AWS Compliance Scan
         if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'compliance-only'
         run: |
@@ -82,7 +80,6 @@ jobs:
           steampipe plugin install aws
           steampipe query "select * from aws_s3_bucket where acl = 'public-read'" --output json > results/steampipe-results.json
 
-      # ✅ AI Remediation + Compliance Explanation (AI-generated content)
       - name: AI Remediation & Compliance Explanation
         run: |
           python3 scripts/AI-Remediation.py \
@@ -91,9 +88,8 @@ jobs:
             --client "${{ matrix.client }}" \
             --resource-group "${{ matrix.resource_group }}"
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}  # ✅ Ensure this secret is set in GitHub repo
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
-      # ✅ AI-Generated Policy-as-Code (OPA/Conftest)
       - name: AI-Generated Custom Policies
         run: |
           python3 scripts/AI-Policy-Generator.py \
@@ -102,14 +98,12 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
-      # ✅ Upload AI-Generated Policies
       - name: Upload AI-Generated Policies
         uses: actions/upload-artifact@v4
         with:
           name: ai-policies-${{ matrix.client }}
           path: generated-policies/${{ matrix.client }}
 
-      # ✅ Final Report Generation and AI Summary (PDF format)
       - name: Generate Client Report (PDF)
         run: |
           python3 scripts/generate-report.py \
@@ -122,7 +116,6 @@ jobs:
             --resource-group "${{ matrix.resource_group }}"
           weasyprint report/report.html report/report-${{ matrix.client }}.pdf
 
-      # ✅ Upload All Final Reports and Scan Results
       - name: Upload Security Report and Results
         uses: actions/upload-artifact@v4
         with:
@@ -130,6 +123,7 @@ jobs:
           path: |
             report/report-${{ matrix.client }}.pdf
             results/
+
 
 # ================================================
 # ⚙️ REMINDERS FOR CLIENT ASSESSMENT:
