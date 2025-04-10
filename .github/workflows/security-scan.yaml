@@ -35,6 +35,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Create required directories
+        run: mkdir -p results report generated-policies
+
       - name: Install Tools (Trivy, Conftest, Gitleaks, Python)
         run: |
           # ✅ Install Trivy
@@ -138,6 +141,7 @@ jobs:
           path: |
             report/report-${{ matrix.client }}.pdf
             results/
+
 
 
 
