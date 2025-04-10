@@ -35,7 +35,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Tools (Trivy, Conftest, Gitleaks, Steampipe, Python)
+      - name: Install Tools (Trivy, Conftest, Gitleaks, Python)
         run: |
           # ✅ Install Trivy
           curl -L https://github.com/aquasecurity/trivy/releases/download/v0.42.0/trivy_0.42.0_Linux-64bit.tar.gz -o trivy.tar.gz
@@ -49,11 +49,6 @@ jobs:
           # ✅ Install Gitleaks (raw binary)
           curl -L https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks-linux-amd64 -o gitleaks
           chmod +x gitleaks && sudo mv gitleaks /usr/local/bin/gitleaks
-
-          # ✅ Install Steampipe
-          curl -sSL https://raw.githubusercontent.com/turbot/steampipe-install/main/install.sh -o install-steampipe.sh
-          chmod +x install-steampipe.sh
-          ./install-steampipe.sh
 
           # ✅ Install Python, pip, and PDF libs
           sudo apt-get update && sudo apt-get install -y python3 python3-pip libpangocairo-1.0-0
@@ -95,12 +90,6 @@ jobs:
           git clone https://github.com/prowler-cloud/prowler
           cd prowler
           ./prowler aws --output json --output-file ../results/prowler-aws-results.json
-
-      - name: Steampipe AWS Scan
-        if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'compliance-only'
-        run: |
-          steampipe plugin install aws
-          steampipe query "select * from aws_s3_bucket where acl = 'public-read'" --output json > results/steampipe-results.json
 
       - name: Validate OPA Policies
         run: |
@@ -149,6 +138,7 @@ jobs:
           path: |
             report/report-${{ matrix.client }}.pdf
             results/
+
 
 
 
