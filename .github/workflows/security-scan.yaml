@@ -51,7 +51,9 @@ jobs:
           chmod +x gitleaks && sudo mv gitleaks /usr/local/bin/gitleaks
 
           # ✅ Install Steampipe
-          curl -sSL https://steampipe.io/install.sh | sh
+          curl -sSL https://steampipe.io/install.sh -o install-steampipe.sh
+          chmod +x install-steampipe.sh
+          ./install-steampipe.sh
 
           # ✅ Install Python, pip, and PDF libs
           sudo apt-get update && sudo apt-get install -y python3 python3-pip libpangocairo-1.0-0
