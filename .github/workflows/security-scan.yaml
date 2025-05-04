@@ -16,15 +16,12 @@ on:
         required: true
         default: 'test-rg'
 
-env:
-  SCAN_TYPE: ${{ github.event.inputs.scan_type }}
-
 jobs:
   security-scan:
     runs-on: ubuntu-latest
 
     env:
-      SCAN_TYPE: ${{ github.event.inputs.scan_type }}  # ✅ move here
+      SCAN_TYPE: ${{ github.event.inputs.scan_type }}
 
     strategy:
       matrix:
@@ -45,20 +42,20 @@ jobs:
         run: |
           # ✅ Install Trivy
           curl -L https://github.com/aquasecurity/trivy/releases/download/v0.42.0/trivy_0.42.0_Linux-64bit.tar.gz -o trivy.tar.gz
-          tar -xvzf trivy.tar.gz
-          sudo mv trivy /usr/local/bin/trivy
+          tar -xvzf trivy.tar.gz trivy
+          chmod +x trivy && sudo mv trivy /usr/local/bin/
 
           # ✅ Install Conftest (raw binary)
           curl -L https://github.com/open-policy-agent/conftest/releases/latest/download/conftest_Linux_x86_64 -o conftest
-          chmod +x conftest && sudo mv conftest /usr/local/bin/conftest
+          chmod +x conftest && sudo mv conftest /usr/local/bin/
 
           # ✅ Install Gitleaks safely
-         # GITLEAKS_VERSION=$(curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep tag_name | cut -d '"' -f 4)
-         # curl -L "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz" -o gitleaks.tar.gz
-         # tar -xvzf gitleaks.tar.gz gitleaks
-         # chmod +x gitleaks && sudo mv gitleaks /usr/local/bin/gitleaks
+          GITLEAKS_VERSION=$(curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep tag_name | cut -d '"' -f 4)
+          curl -L "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz" -o gitleaks.tar.gz
+          tar -xvzf gitleaks.tar.gz gitleaks
+          chmod +x gitleaks && sudo mv gitleaks /usr/local/bin/
 
-          # ✅ Install Python, pip, and PDF libs
+          # ✅ Install Python and required libs
           sudo apt-get update && sudo apt-get install -y python3 python3-pip libpangocairo-1.0-0
           pip3 install --no-cache-dir openai weasyprint jinja2
 
@@ -95,7 +92,7 @@ jobs:
       - name: Prowler AWS Compliance Scan
         if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'compliance-only'
         run: |
-          git clone --branch v5.5.0 https://github.com/prowler-cloud/prowler
+          git clone --depth 1 --branch v3.6.0 https://github.com/prowler-cloud/prowler
           cd prowler
           ./prowler aws --output json --output-file ../results/prowler-aws-results.json
 
@@ -115,7 +112,7 @@ jobs:
 
       - name: AI-Generated Custom Policies
         run: |
-          python3 scripts/AI-Policy-Generator.py || echo "AI remediation failed" \
+          python3 scripts/AI-Policy-Generator.py \
             --ai "ai-remediation-results-${{ matrix.client }}.json" \
             --client "${{ matrix.client }}"
         env:
@@ -147,16 +144,6 @@ jobs:
             report/report-${{ matrix.client }}.pdf
             results/
 
-      - name: Merge results (optional)
-        run: |
-          jq -s '.' results/*.json > results/final-summary.json
-
-      - name: Log Tool Versions
-        run: |
-          trivy --version || true
-          checkov --version || true
-          conftest --version || true
-          python3 --version
 
 
 # ================================================
