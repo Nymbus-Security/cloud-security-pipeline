@@ -23,6 +23,9 @@ jobs:
   security-scan:
     runs-on: ubuntu-latest
 
+    env:
+      SCAN_TYPE: ${{ github.event.inputs.scan_type }}  # ✅ move here
+
     strategy:
       matrix:
         include:
