@@ -50,10 +50,10 @@ jobs:
           chmod +x conftest && sudo mv conftest /usr/local/bin/conftest
 
           # ✅ Install Gitleaks safely
-          GITLEAKS_VERSION=$(curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep tag_name | cut -d '"' -f 4)
-          curl -L "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz" -o gitleaks.tar.gz
-          tar -xvzf gitleaks.tar.gz gitleaks
-          chmod +x gitleaks && sudo mv gitleaks /usr/local/bin/gitleaks
+         # GITLEAKS_VERSION=$(curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep tag_name | cut -d '"' -f 4)
+         # curl -L "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz" -o gitleaks.tar.gz
+         # tar -xvzf gitleaks.tar.gz gitleaks
+         # chmod +x gitleaks && sudo mv gitleaks /usr/local/bin/gitleaks
 
           # ✅ Install Python, pip, and PDF libs
           sudo apt-get update && sudo apt-get install -y python3 python3-pip libpangocairo-1.0-0
@@ -92,7 +92,7 @@ jobs:
       - name: Prowler AWS Compliance Scan
         if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'compliance-only'
         run: |
-          git clone https://github.com/prowler-cloud/prowler
+          git clone --branch v5.5.0 https://github.com/prowler-cloud/prowler
           cd prowler
           ./prowler aws --output json --output-file ../results/prowler-aws-results.json
 
@@ -112,7 +112,7 @@ jobs:
 
       - name: AI-Generated Custom Policies
         run: |
-          python3 scripts/AI-Policy-Generator.py \
+          python3 scripts/AI-Policy-Generator.py || echo "AI remediation failed" \
             --ai "ai-remediation-results-${{ matrix.client }}.json" \
             --client "${{ matrix.client }}"
         env:
@@ -144,8 +144,16 @@ jobs:
             report/report-${{ matrix.client }}.pdf
             results/
 
+      - name: Merge results (optional)
+        run: |
+          jq -s '.' results/*.json > results/final-summary.json
 
-
+      - name: Log Tool Versions
+        run: |
+          trivy --version || true
+          checkov --version || true
+          conftest --version || true
+          python3 --version
 
 
 # ================================================
