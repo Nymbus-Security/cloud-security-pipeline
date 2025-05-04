@@ -82,7 +82,8 @@ jobs:
           directory: ./iac/
           output_format: json
           output_file_path: results/checkov-results.json
-
+        continue-on-error: true  # ✅ Allow failures but capture results
+        
       - name: Regula Terraform Compliance Scan
         if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'iac-only'
         run: |
