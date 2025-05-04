@@ -138,7 +138,6 @@ jobs:
             --ai "ai-remediation-results-${{ matrix.client }}.json" \
             --client "${{ matrix.client }}" \
             --resource-group "${{ matrix.resource_group }}"
-          weasyprint report/report.html report/report-${{ matrix.client }}.pdf
 
       - name: Upload Security Report and Results
         uses: actions/upload-artifact@v4
