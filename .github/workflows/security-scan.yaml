@@ -49,8 +49,10 @@ jobs:
           curl -L https://github.com/open-policy-agent/conftest/releases/latest/download/conftest_Linux_x86_64 -o conftest
           chmod +x conftest && sudo mv conftest /usr/local/bin/conftest
 
-          # ✅ Install Gitleaks (raw binary)
-          curl -L https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks-linux-amd64 -o gitleaks
+          # ✅ Install Gitleaks safely
+          GITLEAKS_VERSION=$(curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep tag_name | cut -d '"' -f 4)
+          curl -L "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz" -o gitleaks.tar.gz
+          tar -xvzf gitleaks.tar.gz gitleaks
           chmod +x gitleaks && sudo mv gitleaks /usr/local/bin/gitleaks
 
           # ✅ Install Python, pip, and PDF libs
