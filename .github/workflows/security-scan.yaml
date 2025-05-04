@@ -91,14 +91,19 @@ jobs:
           chmod +x regula
           ./regula run ./iac/ --format json > results/regula-results.json || echo '{"results":[]}' > results/regula-results.json
 
+      - uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_DEFAULT_REGION }}
 
       - name: Prowler AWS Compliance Scan
         if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'compliance-only'
         run: |
-          git clone --depth 1 https://github.com/prowler-cloud/prowler.git
+          git clone --depth 1 --branch v3.15.0 https://github.com/prowler-cloud/prowler.git
           cd prowler
-          ./prowler aws --output json --output-file ../results/prowler-aws-results.json || echo '{"results":[]}' > ../results/prowler-aws-results.json
-
+          ./prowler aws --output json --output-file ../results/prowler-aws-results.json || \
+          echo '{"results":[]}' > ../results/prowler-aws-results.json
 
       - name: Validate OPA Policies
         run: |
