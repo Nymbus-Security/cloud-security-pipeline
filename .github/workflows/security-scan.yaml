@@ -87,8 +87,10 @@ jobs:
       - name: Regula Terraform Compliance Scan
         if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'iac-only'
         run: |
-          curl -sSL https://github.com/fugue/regula/releases/download/v3.1.0/regula-linux-amd64.tar.gz | tar xz
+          curl -L https://github.com/fugue/regula/releases/download/v3.1.0/regula-linux-amd64 -o regula
+          chmod +x regula
           ./regula run ./iac/ --format json > results/regula-results.json || echo '{"results":[]}' > results/regula-results.json
+
 
       - name: Prowler AWS Compliance Scan
         if: env.SCAN_TYPE == 'full' || env.SCAN_TYPE == 'compliance-only'
